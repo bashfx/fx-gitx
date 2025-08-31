@@ -18,13 +18,12 @@
 #-------------------------------------------------------------------------------
 
 
-  #legacy delete these
-  user='__user'
-  email='1111+__user'
-
-  opt_debug=0
+  # defaults and options
+  opt_debug=1
   opt_default=1
   opt_yes=1
+  opt_quiet=0
+  opt_trace=1
 
   FX_GITX_HOME="$MY_FX/gitx"
   FX_GITX_CONFIG="$FX_GITX_HOME/config"
@@ -75,8 +74,9 @@
   stderr(){ printf "${@}${x}\n" 1>&2; }
 
   __logo(){
-    if [ -z "$opt_quiet" ] || [ $opt_quiet -eq 1 ]; then
-      local logo=$(sed -n '3,9 p' $BASH_SOURCE)
+    if [ "${opt_quiet:-0}" -eq 0 ]; then
+      local logo
+      logo=$(sed -n '3,9 p' "$BASH_SOURCE")
       printf "\n$blue${logo//#/ }$x\n" 1>&2;
     fi
   }
@@ -110,16 +110,11 @@
   }
 
 force=1
-  warn(){ local text=${1:-} force=${2:-1}; [ $force -eq 0 ] || [ $opt_debug -eq 0 ] &&__printf "$delta $text$x\n" "orange"; }
-  okay(){ local text=${1:-} force=${2:-1}; [ $force -eq 0 ] || [ $opt_debug -eq 0 ] &&__printf "$pass $text$x\n" "green"; }
-  info(){ 
-    local text=${1:-} force=${2:-1}; 
-    [ $force -eq 0 ] || 
-    [ $opt_debug -eq 0 ] && 
-    __printf "$lambda $text\n" "blue"; 
-  }
+  warn(){ local text=${1:-} force=${2:-1}; [ "${opt_quiet:-0}" -eq 0 ] && __printf "$delta $text$x\n" "orange"; }
+  okay(){ local text=${1:-} force=${2:-1}; [ "${opt_quiet:-0}" -eq 0 ] && __printf "$pass $text$x\n" "green"; }
+  info(){ local text=${1:-} force=${2:-1}; [ "${opt_quiet:-0}" -eq 0 ] && __printf "$lambda $text\n" "blue"; }
 
-  trace(){ local text=${1:-}; [ $opt_trace -eq 0 ] && __printf "$idots $text\n" "grey"; }
+  trace(){ local text=${1:-}; [ "${opt_trace:-1}" -eq 0 ] && __printf "$idots $text\n" "grey"; }
   error(){ local text=${1:-}; __printf " $text\n" "fail"; }
   fatal(){ trap - EXIT; __printf "\n$red$fail $1 $2 \n"; exit 1; }
 
@@ -151,9 +146,6 @@ force=1
 
   __options(){
     local this next opts=("${@}");
-    #opt_debug=1
-    opt_quiet=1
-    opt_trace=1
 
     for ((i=0; i<${#opts[@]}; i++)); do
       this=${opts[i]}
@@ -163,18 +155,13 @@ force=1
           opt_yes=0
           ;;
         --quiet|-q)
-          opt_quiet=0
-          opt_debug=1
-          opt_trace=1
+          opt_quiet=1
           ;;
         --tra*|-t)
           opt_trace=0
-          opt_debug=0
-          opt_quiet=1
           ;;
         --debug|-v)
           opt_debug=0
-          opt_quiet=1
           ;;
         --default|-m)
           opt_default=0
@@ -257,91 +244,40 @@ force=1
 #-------------------------------------------------------------------------------
   
   get_meta(){
-    local query="$1" this="$2" ret=1 this;
+    local query="$1" this="$2" ret=1 q ref alt
 
-    case $query in
-      user)    q='provide username';   ref=GITX_USER; alt=${user};;
-      email)   q='provide [email] for user ';   ref=GITX_EMAIL; alt=${email};;
-      branch)  q='provide [branch] name'; ref=GITX_BRANCH; alt="main";;
-      repo)    q='provide [repo] name'; ref=GITX_REPO;;
-      tag)     q='provide [tag] id'; ref=GITX_TAG;;
-      vers)    q='provide version'; ref=GITX_VERS;;
-      host)    q='provide host url or ssh host'; ref=GIT_HOST;;
-      *)
-        fatal "invalid inquery"
-      ;;
+    case "$query" in
+      user)    q='provide username';             ref=GITX_USER;   alt=$(git config --get user.name 2>/dev/null);;
+      email)   q='provide email (sans @domain)'; ref=GITX_EMAIL;  alt=$(git config --get user.email 2>/dev/null | sed 's/@.*//' );;
+      branch)  q='provide branch name';          ref=GITX_BRANCH; alt="main";;
+      repo)    q='provide repo name';            ref=GITX_REPO;   alt="${GITX_REPO:-}";;
+      tag)     q='provide tag id';               ref=GITX_TAG;    alt="${GITX_TAG:-}";;
+      vers)    q='provide version';              ref=GITX_VERS;   alt="${GITX_VERS:-}";;
+      host)    q='provide host (e.g. github.com or ssh Host)'; ref=GITX_HOST; alt="github.com";;
+      *) fatal "invalid inquiry: $query";;
     esac
 
-    alt="${alt:-${!ref}}" #check defaults
-    # [ -n "$alt" ] && info "default is ${alt}";
+    alt="${this:-${alt:-${!ref}}}"
 
-    while [ -z "$this" ]; do
-
-      warn "---> Loop start for ($query)"
-
-      # if still not this, check then prompt for it
-      if [ -z "$this" ]; then
-
-
-        if [ $opt_yes -eq 1 ]; then
-
-          #read/confirm loop
-          if [ -z "$this" ]; then 
-            #use default
-            if [ -n "$alt" ]; then
-              val=$(__confirm "${blue}${delta} Use default value for ($alt) for ($query), y/n/q")
-              [  -z "$val" ] && return 1;
-              if [ "$val" == 'yes' ]; then
-                this="$alt"
-                ret=0
-              fi
-            fi
-            #no default
-            if [ -z "$this" ]; then
-              read -p "-> $q (${alt:-none}) ? " this 
-            fi
-          fi
-
-          if [ -n "$this" ] && [ "$this" != "$alt" ]; then 
-            #confirm
-            val=$(__confirm "${orange}${delta} Property ($query) will be set to ($this), y/n/q")
-            err=$?
-            [  -z "$val" ] && return 1;
-            if [ "$val" == "yes" ]; then
-              #okay "User confirmed ($query=>$this)"
-              ret=0
-            else
-              #error "Ok user said no! ($? $val)"
-              this=
-            fi
-
-          fi
-
-        else
-          if [ -z "$alt" ]; then
-            fatal "Error: all arguments required for yes mode ($query). "
-            return 1
-          else
-            this="$alt"
-            continue
-          fi
-        fi
+    if [ ${opt_yes:-1} -eq 0 ]; then
+      if [ -n "$alt" ]; then
+        this="$alt"; ret=0
+      else
+        fatal "Error: missing required argument: $query"
       fi
-      val=
-    done
+    else
+      while [ -z "$this" ]; do
+        read -r -p "-> $q (${alt:-none}) ? " this
+        [ -z "$this" ] && this="$alt"
+        [ -n "$this" ] && ret=0
+      done
+    fi
 
     if [ -n "$this" ]; then
-      ret=0
-    fi
-
-    #finally this
-    #info "Get Meta decided on ($this) ($ret)"
-    if [ -n "${!ref}"]; then
       eval "$ref=\"$this\""
-      info "set $ref => ${!ref}"
-      echo $this;
+      trace "set $ref => ${!ref}"
+      printf '%s\n' "$this"
     fi
-
     return $ret
   }
 
@@ -351,23 +287,13 @@ force=1
   }
 
   do_clone(){
-    local ret=1 i=1
-    __ask=('host'  'user'  'repo')
-    for key in "${__ask[@]}"; do
-      this_var="this_$key"
-      res=$(get_meta "$key" "${!i}")
-      ret=$?
-      if [ $ret -eq 0 ]; then 
-        eval "${this_var}=\"$res\""
-      else
-        #warn "Oops ret is $ret ($this_var)"
-        return 1
-      fi
-      ((i++))
-    done
-    if [ $ret -eq 0 ]; then
-      git clone git@${this_host}:${this_user}/${this_repo}.git
-    fi
+    local ret=1 host user repo
+    host=$(get_meta "host" "$1") || return 1
+    user=$(get_meta "user" "$2") || return 1
+    repo=$(get_meta "repo" "$3") || return 1
+    info "Cloning git@${host}:${user}/${repo}.git"
+    git clone "git@${host}:${user}/${repo}.git"
+    ret=$?
     return $ret
   }
 
@@ -396,18 +322,21 @@ force=1
   }
 
   do_config_local(){
-    #ret=$(get_meta "user")
-    info "Setting default $user and $email in git config"
-    git config user.name "${user} "
-    git config user.email "${email}@users.noreply.github.com"
+    local u e
+    u=$(get_meta "user" "$1") || return 1
+    e=$(get_meta "email" "$2") || return 1
+    info "Setting git config user.name=${u} user.email=${e}@users.noreply.github.com"
+    git config user.name "${u}"
+    git config user.email "${e}@users.noreply.github.com"
   }
 
   do_author(){
-    echo "doing author..."
-    this=$(get_meta "user")
-    this1=$(get_meta "email")
-    if __confirm "${blue}${lambda} Ready! [$this] [$this1]. Commit changes [y/n]?"; then
-      git commit --amend --author="${this} <${this1}@users.noreply.github.com>"
+    info "Amend last commit author"
+    local u e
+    u=$(get_meta "user" "$1") || return 1
+    e=$(get_meta "email" "$2") || return 1
+    if __confirm "${blue}${lambda} Amend author to [$u <$e@users.noreply.github.com>] ?"; then
+      git commit --amend --author="${u} <${e}@users.noreply.github.com>"
     fi
   }
 
@@ -424,17 +353,17 @@ force=1
   #branch master, tag stable
 
   do_retag(){
-    branch=${1:main}
-    tagname=${2:dev}
-    warn "Retag is ${branch} -> ${tagname}"
-    #warn "Deleting local tag ${tagname}"
-    #git tag -d ${tagname} 
-    git add .; 
-    git commit -m "dev: auto tag"; 
-    git push origin $branch; 
-    git tag -f -a ${tagname} -m "auto update"; 
-    git push --tags --force
-    #git push origin ${tagname} --tags --force
+    local branch tagname
+    branch=${1:-main}
+    tagname=${2:-dev}
+    warn "Retag: ${branch} -> ${tagname} (force)"
+    if __confirm "${orange}${delta} Create commit, force-retag '${tagname}', and push tags?"; then
+      git add .
+      git commit -m "chore(gitx): auto tag update"
+      git push origin "$branch"
+      git tag -f -a "$tagname" -m "auto update"
+      git push --tags --force
+    fi
   }
 
 
@@ -601,6 +530,28 @@ force=1
   usage(){
     if command_exists 'docx'; then
       docx "$BASH_SOURCE" "doc:help"; 
+    else
+      cat <<EOF 1>&2
+gitx <cmd> [args]
+
+Commands:
+  clone <host> <user> <repo>   SSH clone repo (interactive if missing)
+  retag <branch> <tag>         Commit, force tag, push tags
+  author [user] [email]        Amend last commit author
+  local                        Set repo git config (name/email)
+  config                       Show git config (list)
+  brls                         List branches
+  plog                         Pretty one-line log
+  sshls                        List SSH hosts from ~/.ssh/config
+  inspect                      List do_* handlers and hints
+  help                         Show this help
+
+Flags:
+  --yes/-y   Auto-confirm prompts
+  --quiet/-q Minimal output
+  --trace/-t Verbose traces
+  --debug/-v Debug output
+EOF
     fi
   }
 
@@ -630,17 +581,23 @@ force=1
 #-------------------------------------------------------------------------------
 #=====================================!code=====================================
 #====================================doc:help!==================================
-#  \n\t${b}gitx <cmd> [arg]${x}
+#  \n\tgitx <cmd> [args]
 #
-#  \t${rev}${y}Commands:${x}
-#   
-#  \t${u}start | stop
-#  \t${u}curr  
-#  \t${u}pause  <pid>
-#  \t${u}resume <pid>
-#  \t${u}ls   | lsi
-#  \t${u}conf | rc
+#  Commands:
+#    clone <host> <user> <repo>   SSH clone repo (interactive if missing)
+#    retag <branch> <tag>         Commit, force tag, push tags
+#    author [user] [email]        Amend last commit author
+#    local                        Set repo git config (name/email)
+#    config                       Show git config (list)
+#    brls                         List branches
+#    plog                         Pretty one-line log
+#    sshls                        List SSH hosts from ~/.ssh/config
+#    inspect                      List do_* handlers and hints
+#    help                         Show this help
 #
-#${x}
+#  Flags:
+#    --yes/-y   Auto-confirm prompts
+#    --quiet/-q Minimal output
+#    --trace/-t Verbose traces
+#    --debug/-v Debug output
 #=================================!doc:help=====================================
-
