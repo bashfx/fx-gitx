@@ -1,0 +1,34 @@
+[repo]
+uid = "repo_522a0341db251c793f7a"
+id = "bashfx/fx-gitx"
+name = "fx-gitx"
+kind = "tool"
+lifecycle = "active"
+
+[[capabilities]]
+name = "repo.create"
+module = "gitx.sh"
+class = "tool"
+tags = ["bash", "git", "clone", "init", "ssh"]
+stability = "working"
+
+[[capabilities]]
+name = "repo.sync"
+module = "gitx.sh"
+class = "tool"
+tags = ["git", "push", "remote", "tags", "retag"]
+stability = "working"
+
+[[capabilities]]
+name = "repo.inspect"
+module = "gitx.sh"
+class = "tool"
+tags = ["git", "branch-list", "pretty-log", "ssh-config", "inspect"]
+stability = "working"
+
+[[capabilities]]
+name = "config.resolve"
+module = "gitx.sh"
+class = "adapter"
+tags = ["git-config", "author", "user", "email", "host"]
+stability = "working"
